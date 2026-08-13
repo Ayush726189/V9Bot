@@ -18,8 +18,8 @@ sudo apt update
 sudo apt install -y git python3-venv docker.io
 sudo systemctl enable --now docker
 
-git clone <your-modified-repository-url> /root/Private1
-cd /root/Private1
+git clone https://github.com/Ayush726189/V9Bot.git
+cd V9Bot
 
 python3 -m venv .venv
 source .venv/bin/activate
