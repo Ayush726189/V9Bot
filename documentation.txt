@@ -1,0 +1,278 @@
+TitanCloud Discord VPS Bot - Complete Setup Guide
+==================================================
+
+Credit
+------
+Created by Nyx. TitanCloud packaging, configuration, and deployment guide included.
+
+What this bot does
+------------------
+TitanCloud lets approved Discord members create and manage Docker-based VPS
+containers using Discord slash commands.
+
+Default plan:
+- 8 GB RAM per VPS container
+- 4 CPU cores per container
+- 60 GB disk setting shown to users
+- One VPS per normal user
+- Owners can create unlimited VPS instances, up to the server-wide limit
+
+Important files in this ZIP
+---------------------------
+- titancloud_bot.py          The bot program.
+- requirements.txt           Python packages the bot needs.
+- .env.example               Copy this to .env and add your own bot token.
+- titancloud-bot.service     Background service for normal Ubuntu VPS servers.
+- README.md                  Short project overview.
+- documentation.txt          This complete guide.
+
+Never share or upload .env. It contains your Discord bot token.
+
+1. Server requirements
+----------------------
+Use Ubuntu 22.04 or Ubuntu 24.04 on a normal KVM VPS, dedicated server, or
+bare-metal server. Docker must be allowed to run containers on the host.
+
+Do not use a restricted OpenVZ/LXC/container VPS unless the provider has
+explicitly enabled Docker nesting and mount support.
+
+Recommended minimum host resources:
+- Enough real RAM for every container you allow
+- Docker installed and working
+- Root or sudo access
+- Internet access
+
+2. Install on Ubuntu
+--------------------
+Upload and unzip this package, then run:
+
+  sudo apt update
+  sudo apt install -y python3 python3-venv python3-pip docker.io
+  sudo systemctl enable --now docker
+
+Go to the folder where you extracted the ZIP:
+
+  cd /root/Private1
+  cp .env.example .env
+  nano .env
+
+Important: use the correct filename. The command is `nano .env`. A command such
+as `nano .env.examplec` contains a typo, creates the wrong file, and does not
+configure the bot.
+
+Set DISCORD_TOKEN to a new token from Discord Developer Portal. Do not add
+the word "Bot" before the token.
+
+Create the Python environment and install packages:
+
+  python3 -m venv .venv
+  .venv/bin/pip install -r requirements.txt
+  .venv/bin/python -m py_compile titancloud_bot.py
+
+3. Check Docker before starting the bot
+---------------------------------------
+Run this exactly:
+
+  docker run --rm alpine:3.20 true
+
+It must finish with no error. If it fails, do not use /deploy yet. Fix Docker
+with your VPS provider first; see "Docker errors" below.
+
+4. Start the bot once for testing
+---------------------------------
+From the bot folder:
+
+  .venv/bin/python titancloud_bot.py
+
+You should see that TitanCloud connected to Discord and synced slash commands.
+Stop it with Ctrl+C after testing. Do not leave a manual copy running when you
+enable the background service, because two bot copies cause Discord interaction
+errors.
+
+5. Run in the background forever (recommended)
+------------------------------------------------
+This method is for a normal VPS with systemd.
+
+The provided service uses /root/Private1. If your folder is different, replace
+every /root/Private1 in titancloud-bot.service with your real full folder path
+before copying it.
+
+Install and start the service:
+
+  cd /root/Private1
+  sudo cp titancloud-bot.service /etc/systemd/system/titancloud-bot.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now titancloud-bot
+  sudo systemctl status titancloud-bot
+
+Useful service commands:
+
+  sudo systemctl restart titancloud-bot
+  sudo systemctl stop titancloud-bot
+  sudo systemctl start titancloud-bot
+  sudo journalctl -u titancloud-bot -f
+
+The service has Restart=always, so the bot starts after reboot and restarts if
+the Python process crashes.
+
+6. GitHub Codespaces note
+-------------------------
+Codespaces can run Docker and is useful for testing, but it is not a 24/7 host.
+Codespaces can pause or stop, which stops the bot. It also does not normally
+use systemd.
+
+For a temporary Codespaces run from /workspaces/SID/VMM:
+
+  python3 -m venv .venv
+  .venv/bin/pip install -r requirements.txt
+  nohup .venv/bin/python titancloud_bot.py > titancloud_bot.log 2>&1 &
+  echo $! > .titancloud.pid
+
+Check it:
+
+  cat .titancloud.pid
+  ps -p "$(cat .titancloud.pid)"
+  tail -f titancloud_bot.log
+
+Stop it:
+
+  kill "$(cat .titancloud.pid)"
+
+7. Discord Developer Portal setup
+---------------------------------
+1. Open https://discord.com/developers/applications
+2. Select your application and open the Bot page.
+3. Reset the bot token if necessary and put the new token in .env.
+4. Enable Server Members Intent and Message Content Intent.
+5. Invite the bot using bot and applications.commands scopes.
+6. Restart the TitanCloud service after changing .env.
+
+8. Discord configuration included in .env.example
+--------------------------------------------------
+The supplied example is already set for this project:
+
+- Owner IDs: 1159164727323271320, 1103109628591620106
+- Owner role: 1426555185454649447
+- Normal user role: 1536277694927474720
+- RAM per VPS: DEFAULT_MEMORY_GB (default 8)
+- CPU cores per VPS: DEFAULT_CPU_CORES (default 4)
+- Displayed disk allocation: DEFAULT_DISK_GB (default 60)
+- Owner custom RAM maximum: MAX_CUSTOM_MEMORY_GB (default 256)
+- Owner custom CPU maximum: MAX_CUSTOM_CPU_CORES (default 64)
+- Owner custom displayed disk maximum: MAX_CUSTOM_DISK_GB (default 2000)
+- Normal user VPS limit: MAX_VPS_PER_USER (default 1)
+
+These settings are read from .env at startup. Restart the bot after changing
+them. Docker named volumes do not enforce the displayed disk value as a portable
+hard quota; configure storage quotas on the Docker host when needed.
+
+/deploy is the normal self-service command. Owners use /create_vps with a target,
+RAM, disk, and core value to assign a normal-size or larger custom plan to another
+member. Custom plans cannot be smaller than the normal plan and cannot exceed
+the MAX_CUSTOM_* limits. Normal users need the normal user role and can create
+only one container. Every deployment still respects MAX_CONTAINERS.
+
+9. Main bot commands
+--------------------
+- /help                 Shows the user guide.
+- /deploy               Creates a VPS for the user.
+- /create_vps target:@user ram:16 disk:120 core:8
+                        Owner-only: creates a larger custom-plan VPS.
+- /manage               Opens the management panel and sends it by DM.
+
+The management panel includes Start, Stop, Restart, Reinstall Current OS,
+Fresh SSH, and Transfer. Every Fresh SSH click closes all previous tmate
+processes and sockets before creating one replacement and sending it to the
+clicking user's DMs. Requests are serialized per VPS so rapid clicks cannot
+race. The DM contains only the private SSH command--no username, password,
+root password, or access token. The user must allow DMs from server members
+for delivery.
+
+To log in, run /manage, click Fresh SSH, open the bot DM, copy the complete
+ssh command, paste it into a terminal, and press Enter. No separate login name
+or password is used.
+
+Control-panel buttons do not expire after five minutes. Saved VPS control
+views are restored automatically after the bot restarts. Bot data backups use
+the non-executable titancloud_backup.json format.
+
+10. Common issues and simple fixes
+----------------------------------
+
+Problem: "Improper token has been passed" or "401 Unauthorized"
+Fix: The Discord token is invalid, old, copied incorrectly, or has been reset.
+Reset it in Discord Developer Portal, update DISCORD_TOKEN in .env, then run:
+
+  sudo systemctl restart titancloud-bot
+
+Problem: "ModuleNotFoundError: No module named 'discord'" or "pip3: command not found"
+Fix: Use the project virtual environment, not global Python:
+
+  cd /root/Private1
+  .venv/bin/pip install -r requirements.txt
+  .venv/bin/python titancloud_bot.py
+
+Problem: "Unknown interaction" / error 10062
+Fix: Do not run two copies of the bot. Stop any manual Python run and use only:
+
+  sudo systemctl restart titancloud-bot
+
+Problem: Docker error containing "failed to mount overlay" or "invalid argument"
+Fix: The host blocks Docker container mounts. Confirm with:
+
+  docker run --rm alpine:3.20 true
+
+If that test fails, /deploy cannot work. Move to a KVM/dedicated server or ask
+the provider to enable privileged Docker, OverlayFS, nesting, and mount support.
+This is a host-provider issue, not a Discord bot bug.
+
+Problem: Docker says "fuse-overlayfs" or runc mount errors
+Fix: The host still blocks the necessary mount namespace operations. A Docker
+storage-driver change cannot bypass a restricted host. Use a full VPS instead.
+
+Problem: UFW or iptables reports missing tables/chains or "Operation not supported"
+Fix: Do not run a software firewall inside a TitanCloud container. The bot does
+not install or execute UFW, iptables, ip6tables, or write /etc/ufw rules. Control
+exposed services with Docker port mappings and the Docker host/provider firewall.
+The managed image does not install a nested Docker daemon, because its startup
+would also try to create container-local firewall chains.
+
+Problem: Bot stops when SSH closes
+Fix: You started it manually. Install and enable titancloud-bot.service.
+
+Problem: Bot stops on Codespaces
+Fix: Codespaces is temporary and can pause. Use a real VPS with systemd for
+permanent service.
+
+Problem: /deploy says user already owns a VPS
+Fix: This is normal for regular users. The limit is one VPS. Owners bypass it.
+
+Problem: slash commands do not appear
+Fix: Wait a minute after startup, make sure the bot was invited with the
+applications.commands scope, then restart the service.
+
+11. Safe updating
+-----------------
+1. Stop the service:
+
+  sudo systemctl stop titancloud-bot
+
+2. Back up .env and titancloud.db.
+3. Replace program files, but keep your real .env and database.
+4. Run .venv/bin/pip install -r requirements.txt.
+5. Start the service again:
+
+  sudo systemctl start titancloud-bot
+
+12. Push your project to GitHub
+--------------------------------
+Never upload .env, databases, logs, or your virtual environment.
+
+  git rm --cached .env
+  git add titancloud_bot.py titancloud-bot.service requirements.txt README.md documentation.txt .gitignore .env.example
+  git commit -m "TitanCloud VPS bot"
+  git branch -M main
+  git remote set-url origin https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
+  git push -u origin main
+
+End of guide.
